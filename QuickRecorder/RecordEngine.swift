@@ -332,6 +332,8 @@ extension AppDelegate {
             SCContext.micInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: settings)
             SCContext.micInput.expectsMediaDataInRealTime = true
             if SCContext.vW.canAdd(SCContext.micInput) { SCContext.vW.add(SCContext.micInput) }
+            // Enable fragmented writing to prevent corruption on unexpected termination
+            SCContext.vW.movieFragmentInterval = CMTime(seconds: 0.5, preferredTimescale: 1000)
             SCContext.vW.startWriting()
             //SCContext.audioFile2 = try! AVAudioFile(forWriting: SCContext.filePath2.url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
         } else {
@@ -361,6 +363,7 @@ extension SCDisplay {
 extension AppDelegate {
     func initVideo(conf: SCStreamConfiguration) {
         SCContext.startTime = nil
+        SCContext.sessionStarted = false  // Reset session state for new recording
 
         let fileEnding = videoFormat.rawValue
         var fileType: AVFileType?
@@ -426,12 +429,18 @@ extension AppDelegate {
         if recordMic {
             let sampleRate = SCContext.getSampleRate() ?? 48000
             let settings = SCContext.updateAudioSettings(rate: sampleRate)
-            
+
             SCContext.micInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: settings)
             SCContext.micInput.expectsMediaDataInRealTime = true
             if SCContext.vW.canAdd(SCContext.micInput) { SCContext.vW.add(SCContext.micInput) }
             startMicRecording()
         }
+
+        // Enable fragmented MP4 to prevent file corruption on unexpected termination
+        // This writes metadata periodically, so even if recording stops abruptly,
+        // the file remains playable (only losing the last fragment)
+        SCContext.vW.movieFragmentInterval = CMTime(seconds: 0.5, preferredTimescale: 1000)
+
         SCContext.vW.startWriting()
     }
     
@@ -568,6 +577,7 @@ extension AppDelegate {
             if SCContext.vW != nil && SCContext.vW?.status == .writing, SCContext.startTime == nil {
                 SCContext.startTime = Date.now
                 SCContext.vW.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(SampleBuffer))
+                SCContext.sessionStarted = true
             }
             if (SCContext.timeOffset.value > 0) { SampleBuffer = SCContext.adjustTime(sample: SampleBuffer, by: SCContext.timeOffset) ?? sampleBuffer }
             var pts = CMSampleBufferGetPresentationTimeStamp(SampleBuffer)
@@ -603,6 +613,7 @@ extension AppDelegate {
                 hideMousePointer = true
                 if SCContext.vW != nil && SCContext.vW?.status == .writing, SCContext.startTime == nil {
                     SCContext.vW.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(SampleBuffer))
+                    SCContext.sessionStarted = true
                 }
                 if SCContext.startTime == nil { SCContext.startTime = Date.now }
                 guard let samples = SampleBuffer.asPCMBuffer else { return }

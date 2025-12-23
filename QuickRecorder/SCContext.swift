@@ -29,6 +29,7 @@ class SCContext {
     static var isPaused = false
     static var isResume = false
     static var isSkipFrame = false
+    static var sessionStarted = false  // Track if AVAssetWriter session was started
     static var lastPTS: CMTime?
     static var timeOffset = CMTimeMake(value: 0, timescale: 0)
     static var screenArea: NSRect?
@@ -350,40 +351,52 @@ class SCContext {
             if ud.bool(forKey: "enableAEC") { try? AECEngine.stopAudioUnit() }
         }
         if streamType != .systemaudio {
-            let dispatchGroup = DispatchGroup()
-            dispatchGroup.enter()
-            vwInput.markAsFinished()
-            if #available(macOS 13, *) { awInput.markAsFinished() }
-            vW.finishWriting {
-                if vW.status != .completed {
-                    print("Video writing failed with status: \(vW.status), error: \(String(describing: vW.error))")
-                    let err = vW.error?.localizedDescription ?? "Unknow Error"
-                    showNotification(title: "Failed to save file".local, body: "\(err)", id: "quickrecorder.error.\(UUID().uuidString)")
-                } else {
-                    if ud.bool(forKey: "recordMic") && ud.bool(forKey: "recordWinSound") && ud.bool(forKey: "remuxAudio") {
-                        mixAudioTracks(videoURL: filePath.url) { result in
-                            switch result {
-                            case .success(let url):
-                                print("Exported video to \(String(describing: url.path))")
-                                if !ud.bool(forKey: "showPreview") {
-                                    showNotification(title: "Recording Completed".local, body: String(format: "File saved to: %@".local, url.path), id: "quickrecorder.completed.\(UUID().uuidString)")
-                                }
-                                DispatchQueue.main.async {
-                                    if ud.bool(forKey: "trimAfterRecord") {
-                                        AppDelegate.shared.createNewWindow(view: VideoTrimmerView(videoURL: url), title: url.lastPathComponent, only: false)
-                                    } else {
-                                        showPreview(path: url.path)
+            // Check if session was ever started - if not, skip finishWriting to avoid corruption
+            if !sessionStarted || vW == nil || vW.status != .writing {
+                print("Recording stopped before session started or writer not ready - cleaning up incomplete file")
+                if let path = filePath { try? fd.removeItem(atPath: path) }
+                showNotification(
+                    title: "Recording Cancelled".local,
+                    body: "Recording stopped before any frames were captured.".local,
+                    id: "quickrecorder.cancelled.\(UUID().uuidString)"
+                )
+                // Don't return - continue with cleanup below
+            } else {
+                let dispatchGroup = DispatchGroup()
+                dispatchGroup.enter()
+                vwInput.markAsFinished()
+                if #available(macOS 13, *) { awInput.markAsFinished() }
+                vW.finishWriting {
+                    if vW.status != .completed {
+                        print("Video writing failed with status: \(vW.status), error: \(String(describing: vW.error))")
+                        let err = vW.error?.localizedDescription ?? "Unknow Error"
+                        showNotification(title: "Failed to save file".local, body: "\(err)", id: "quickrecorder.error.\(UUID().uuidString)")
+                    } else {
+                        if ud.bool(forKey: "recordMic") && ud.bool(forKey: "recordWinSound") && ud.bool(forKey: "remuxAudio") {
+                            mixAudioTracks(videoURL: filePath.url) { result in
+                                switch result {
+                                case .success(let url):
+                                    print("Exported video to \(String(describing: url.path))")
+                                    if !ud.bool(forKey: "showPreview") {
+                                        showNotification(title: "Recording Completed".local, body: String(format: "File saved to: %@".local, url.path), id: "quickrecorder.completed.\(UUID().uuidString)")
                                     }
+                                    DispatchQueue.main.async {
+                                        if ud.bool(forKey: "trimAfterRecord") {
+                                            AppDelegate.shared.createNewWindow(view: VideoTrimmerView(videoURL: url), title: url.lastPathComponent, only: false)
+                                        } else {
+                                            showPreview(path: url.path)
+                                        }
+                                    }
+                                case .failure(let error):
+                                    print("Failed to export video: \(error.localizedDescription)")
                                 }
-                            case .failure(let error):
-                                print("Failed to export video: \(error.localizedDescription)")
                             }
                         }
                     }
+                    dispatchGroup.leave()
                 }
-                dispatchGroup.leave()
+                dispatchGroup.wait()
             }
-            dispatchGroup.wait()
         } else {
             if ud.bool(forKey: "recordMic") { vW.finishWriting {} }
         }
@@ -474,6 +487,7 @@ class SCContext {
         
         streamType = nil
         firstFrame = nil
+        sessionStarted = false
     }
     
     static func showPreview(path: String, image: NSImage? = nil) {
