@@ -141,7 +141,10 @@ extension AppDelegate {
         SCContext.timeOffset = CMTimeMake(value: 0, timescale: 0)
         SCContext.isPaused = false
         SCContext.isResume = false
-        
+        DispatchQueue.main.async {
+            PopoverState.shared.isMicMuted = SCContext.isMicMuted
+        }
+
         let audioOnly = SCContext.streamType == .systemaudio
         
         let conf: SCStreamConfiguration
@@ -455,8 +458,13 @@ extension AppDelegate {
                 }
                 try? SCContext.AECEngine.startAudioStream(enableAEC: enableAEC, duckingLevel: level, audioBufferHandler: { pcmBuffer in
                     if SCContext.isPaused || SCContext.startTime == nil { return }
+                    // Check microphone mute state before appending audio data
                     if SCContext.micInput.isReadyForMoreMediaData {
-                        SCContext.micInput.append(pcmBuffer.asSampleBuffer!)
+                        if !SCContext.isMicMuted {
+                            SCContext.micInput.append(pcmBuffer.asSampleBuffer!)
+                        } else if let silent = SCContext.makeSilentSampleBuffer(matching: pcmBuffer) {
+                            SCContext.micInput.append(silent)
+                        }
                     }
                 })
             } else {
@@ -464,8 +472,13 @@ extension AppDelegate {
                 let inputFormat = input.inputFormat(forBus: 0)
                 input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, time in
                     if SCContext.isPaused || SCContext.startTime == nil { return }
+                    // Check microphone mute state before appending audio data
                     if SCContext.micInput.isReadyForMoreMediaData {
-                        SCContext.micInput.append(buffer.asSampleBuffer!)
+                        if !SCContext.isMicMuted {
+                            SCContext.micInput.append(buffer.asSampleBuffer!)
+                        } else if let silent = SCContext.makeSilentSampleBuffer(matching: buffer) {
+                            SCContext.micInput.append(silent)
+                        }
                     }
                 }
                 try! SCContext.audioEngine.start()
@@ -701,8 +714,13 @@ class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         if SCContext.isPaused || SCContext.startTime == nil { return }
+        // Check microphone mute state before appending audio data
         if SCContext.micInput.isReadyForMoreMediaData {
-            SCContext.micInput.append(sampleBuffer)
+            if !SCContext.isMicMuted {
+                SCContext.micInput.append(sampleBuffer)
+            } else if let silent = SCContext.makeSilentSampleBuffer(matching: sampleBuffer) {
+                SCContext.micInput.append(silent)
+            }
         }
     }
 }

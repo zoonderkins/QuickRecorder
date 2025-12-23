@@ -30,6 +30,7 @@ class SCContext {
     static var isResume = false
     static var isSkipFrame = false
     static var sessionStarted = false  // Track if AVAssetWriter session was started
+    static var isMicMuted = false
     static var lastPTS: CMTime?
     static var timeOffset = CMTimeMake(value: 0, timescale: 0)
     static var screenArea: NSRect?
@@ -334,6 +335,10 @@ class SCContext {
         recordCam = ""
         recordDevice = ""
         isMagnifierEnabled = false
+        isMicMuted = false
+        DispatchQueue.main.async {
+            PopoverState.shared.isMicMuted = false
+        }
         mousePointer.orderOut(nil)
         screenMagnifier.orderOut(nil)
         AppDelegate.shared.stopGlobalMouseMonitor()
@@ -550,6 +555,12 @@ class SCContext {
     static func getCurrentMic() -> AVCaptureDevice? {
         let deviceName = ud.string(forKey: "micDevice")
         return getMicrophone().first(where: { $0.localizedName == deviceName })
+    }
+
+    static func toggleMicrophoneMute() {
+        guard streamType != nil && ud.bool(forKey: "recordMic") && streamType != .idevice else { return }
+        isMicMuted.toggle()
+        PopoverState.shared.isMicMuted = isMicMuted
     }
     
     /*static func getChannelCount() -> Int? {
@@ -849,5 +860,37 @@ class SCContext {
                 break
             }
         }
+    }
+
+    // Helper: Create a silent CMSampleBuffer with the same format and frame count as the input
+    static func makeSilentSampleBuffer(matching buffer: CMSampleBuffer) -> CMSampleBuffer? {
+        guard let formatDesc = buffer.formatDescription,
+              let absd = formatDesc.audioStreamBasicDescription else { return nil }
+        guard let pcmBuffer = buffer.asPCMBuffer else { return nil }
+        let frameLength = pcmBuffer.frameLength
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: absd.mSampleRate, channels: absd.mChannelsPerFrame) else { return nil }
+        guard let silentBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameLength) else { return nil }
+        silentBuffer.frameLength = frameLength
+        // Zero out the buffer (silence)
+        if let floatChannelData = silentBuffer.floatChannelData {
+            for channel in 0..<Int(silentBuffer.format.channelCount) {
+                memset(floatChannelData[channel], 0, Int(frameLength) * MemoryLayout<Float>.size)
+            }
+        }
+        return silentBuffer.asSampleBuffer
+    }
+
+    // Helper: Create a silent CMSampleBuffer with the same format and frame count as the input AVAudioPCMBuffer
+    static func makeSilentSampleBuffer(matching buffer: AVAudioPCMBuffer) -> CMSampleBuffer? {
+        let format = buffer.format
+        let frameLength = buffer.frameLength
+        guard let silentBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameLength) else { return nil }
+        silentBuffer.frameLength = frameLength
+        if let floatChannelData = silentBuffer.floatChannelData {
+            for channel in 0..<Int(format.channelCount) {
+                memset(floatChannelData[channel], 0, Int(frameLength) * MemoryLayout<Float>.size)
+            }
+        }
+        return silentBuffer.asSampleBuffer
     }
 }
