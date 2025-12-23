@@ -40,7 +40,10 @@ brew install lihaoyun6/tap/quickrecorder
 > QuickRecorder has no plans to be uploaded to the App Store, so it does not need to be designed as a sandbox app.  
 
 **3. How to independently control the volume of system sound and sound from microphone in other video editor?**
-> QuickRecorder will merge the audio input from the microphone to the main audio track after recording by default. If you need to edit the video, you can turn off the `Record Microphone to Main Track` option in the settings panel. After turning off, the system sound and sound from microphone will be recorded into two audio tracks and can be edited independently.  
+> QuickRecorder will merge the audio input from the microphone to the main audio track after recording by default. If you need to edit the video, you can turn off the `Record Microphone to Main Track` option in the settings panel. After turning off, the system sound and sound from microphone will be recorded into two audio tracks and can be edited independently.
+
+**4. How can I troubleshoot recording issues?**
+> QuickRecorder includes a debug log feature for troubleshooting. Go to **Help > View Debug Log** to view diagnostic information. The log file is located at `/tmp/qr-debug.log`.
 
 ## Donate
 <img src="./img/donate.png" width="350"/>

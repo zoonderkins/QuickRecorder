@@ -367,6 +367,7 @@ extension AppDelegate {
     func initVideo(conf: SCStreamConfiguration) {
         SCContext.startTime = nil
         SCContext.sessionStarted = false  // Reset session state for new recording
+        debugLog("initVideo: sessionStarted reset to false")
 
         let fileEnding = videoFormat.rawValue
         var fileType: AVFileType?
@@ -439,14 +440,14 @@ extension AppDelegate {
             startMicRecording()
         }
 
-        // Enable fragmented MP4 to prevent file corruption on unexpected termination
-        // This writes metadata periodically, so even if recording stops abruptly,
-        // the file remains playable (only losing the last fragment)
-        SCContext.vW.movieFragmentInterval = CMTime(seconds: 0.5, preferredTimescale: 1000)
+        // DISABLED: movieFragmentInterval was causing encoder failures (-16341)
+        // TODO: Investigate fragmented MP4 compatibility with video encoder
+        // SCContext.vW.movieFragmentInterval = CMTime(seconds: 0.5, preferredTimescale: 1000)
 
         SCContext.vW.startWriting()
+        debugLog("initVideo: vW.startWriting() - filePath: \(SCContext.filePath ?? "nil")")
     }
-    
+
     func startMicRecording() {
         if micDevice == "default" {
             if enableAEC {
@@ -586,11 +587,12 @@ extension AppDelegate {
             guard let statusRawValue = attachments[SCStreamFrameInfo.status] as? Int,
                   let status = SCFrameStatus(rawValue: statusRawValue),
                   status == .complete else { return }
-            
+
             if SCContext.vW != nil && SCContext.vW?.status == .writing, SCContext.startTime == nil {
                 SCContext.startTime = Date.now
                 SCContext.vW.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(SampleBuffer))
                 SCContext.sessionStarted = true
+                debugLog("Recording started: first frame received, session started")
             }
             if (SCContext.timeOffset.value > 0) { SampleBuffer = SCContext.adjustTime(sample: SampleBuffer, by: SCContext.timeOffset) ?? sampleBuffer }
             var pts = CMSampleBufferGetPresentationTimeStamp(SampleBuffer)

@@ -14,6 +14,40 @@ import SwiftLAME
 import SwiftUI
 import AECAudioStream
 
+// Debug logging to file for troubleshooting recording issues
+private var debugLogInitialized = false
+private let debugLogPath = "/tmp/qr-debug.log"
+func debugLog(_ message: String) {
+    let logFileURL = URL(fileURLWithPath: debugLogPath)
+
+    // On first call, clear old log
+    if !debugLogInitialized {
+        debugLogInitialized = true
+        try? FileManager.default.removeItem(at: logFileURL)
+    }
+
+    let dateFormatter = DateFormatter()
+    dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+    let timestamp = dateFormatter.string(from: Date())
+    let logMessage = "[\(timestamp)] \(message)\n"
+
+    // Also print to console
+    print("[DEBUGLOG] \(message)")
+
+    // Append to file
+    if let data = logMessage.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: debugLogPath) {
+            if let fileHandle = try? FileHandle(forWritingTo: logFileURL) {
+                fileHandle.seekToEndOfFile()
+                fileHandle.write(data)
+                fileHandle.closeFile()
+            }
+        } else {
+            try? data.write(to: logFileURL)
+        }
+    }
+}
+
 class SCContext {
     static var trimingList = [URL]()
     static var firstFrame: CMSampleBuffer?
@@ -329,6 +363,7 @@ class SCContext {
     }
     
     static func stopRecording() {
+        debugLog("stopRecording: streamType=\(String(describing: streamType)), sessionStarted=\(sessionStarted)")
         if ud.bool(forKey: "preventSleep") { SleepPreventer.shared.allowSleep() }
         autoStop = 0
         lastPTS = nil
@@ -356,17 +391,16 @@ class SCContext {
             if ud.bool(forKey: "enableAEC") { try? AECEngine.stopAudioUnit() }
         }
         if streamType != .systemaudio {
-            // Check if session was ever started - if not, skip finishWriting to avoid corruption
-            if !sessionStarted || vW == nil || vW.status != .writing {
-                print("Recording stopped before session started or writer not ready - cleaning up incomplete file")
-                if let path = filePath { try? fd.removeItem(atPath: path) }
+            // Check if session was ever started - if not, show notification
+            if !sessionStarted {
                 showNotification(
                     title: "Recording Cancelled".local,
                     body: "Recording stopped before any frames were captured.".local,
                     id: "quickrecorder.cancelled.\(UUID().uuidString)"
                 )
-                // Don't return - continue with cleanup below
-            } else {
+            }
+            if vW != nil {
+                // Session was started, proceed with finishWriting
                 let dispatchGroup = DispatchGroup()
                 dispatchGroup.enter()
                 vwInput.markAsFinished()

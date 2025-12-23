@@ -90,6 +90,22 @@ struct QuickRecorderApp: App {
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updater: updaterController.updater)
             }
+            CommandGroup(replacing: .help) {
+                Button("View Debug Log") {
+                    let logPath = "/tmp/qr-debug.log"
+                    if FileManager.default.fileExists(atPath: logPath) {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: logPath))
+                    } else {
+                        // Create empty log file if it doesn't exist
+                        FileManager.default.createFile(atPath: logPath, contents: "No debug logs yet.\n".data(using: .utf8))
+                        NSWorkspace.shared.open(URL(fileURLWithPath: logPath))
+                    }
+                }
+                Divider()
+                Button("Open Debug Log Folder") {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: "/tmp"))
+                }
+            }
         }
     }
 }
